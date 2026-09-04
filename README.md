@@ -26,7 +26,11 @@
 2. 填 `Android 12 / Kernel 5.10 / Sub Level 236 / OS Patch 2025-05 / Revision r1`
 3. 开关：ZRAM=✅、KPM=✅、BBG=✅、**CVE-2026-43499=✅**
 4. （可选）`自定义版本名称` 填伪装名（见 §3.3），`自定义构建时间` 填如 `Tue Oct 21 03:03:12 UTC 2025`
-5. 产物：`android12-5.10.236-2025-05-AnyKernel3.zip` / `*boot*.img`
+5. 产物：`android12-5.10.236-2025-05-AnyKernel3.zip` / `*boot*.img` / 管理器 APK（`manager-apk` 产物）
+
+> **默认值即推荐配置**：构建 SUSFS ✅ / SUSFS 内置 ✅ / KPM = enabled ✅ / LZ4KD ✅ / BBG ✅ / CVE 修复 ✅ / 管理器 SukiSU + Spoofed ✅ / Telegram ✅。
+> 全部为勾选/下拉项，可随时关闭：`KPM` 三态（关闭/开启/开启+修补镜像）、`SUSFS 内置`（关掉即 SukiSU main 非内置）、`是否构建 SUSFS`、`CVE`、`LZ4KD`、`BBG`、`内核名伪装`、`构建时间伪装`、管理器来源（SukiSU/ReSukiSU）+ 是否 Spoofed。
+> 完整矩阵 + **自动 Release** 在 **Build Kernels** 工作流（默认开），Release 会附带 Manager APK。
 
 ### 方式二：构建所有版本
 Actions → **Build Kernels** → 设全局项 → 自动按 `matrix.json` 编 19 组合并打 Release。
@@ -62,11 +66,13 @@ python build.py --list-configs / --list-matrix
 | `--ksu-commit` | SukiSU commit | latest |
 | `--susfs-commit` | SUSFS commit(hash/HEAD~N) | latest |
 | `--zram` | ZRAM LZ4KD | False |
-| `--no-kpm` | 禁用 KPM | False |
+| `--no-kpm` | 关闭 KPM（含 defconfig 与镜像修补） | False |
+| `--no-susfs` | **关闭 SUSFS（内核侧补丁/配置/内置全停）** | False |
+| `--susfs-main` | **SukiSU 用 main 模式（SUSFS 非内置）** | False(=builtin) |
 | `--bbg` | Baseband-guard | False |
 | `--op8e` | OnePlus 8E（非一加勿开） | False |
 | `--bbr` | BBR 默认拥塞 | False |
-| `--cve-2026-43499` | **GhostLock 修复链** | False |
+| `--cve-2026-43499` | **GhostLock 修复链** | False(UI 默认勾选) |
 | `--custom-version` | **伪装内核名后缀**（`-…` 或完整 `5.10.236-…`） | - |
 | `--build-time` | **伪装构建日期**（`%a %b %d %H:%M:%S UTC %Y`） | 当前UTC |
 | `--no-release` / `--matrix` / `--all` / `--dry-run` / `-w` | 常规 | - |

@@ -62,45 +62,6 @@ class ShellCommand:
 
 
 class KernelBuilder:
-    KERNEL_CONFIG_TEMPLATE = """
-# === KernelSU Config ===
-CONFIG_KSU=y
-CONFIG_KPM=y
-CONFIG_KSU_SUSFS_SUS_SU=n
-
-# === TMPFS Config ===
-CONFIG_TMPFS_XATTR=y
-CONFIG_TMPFS_POSIX_ACL=y
-
-# === Network Config ===
-CONFIG_IP_NF_TARGET_TTL=y
-CONFIG_IP6_NF_TARGET_HL=y
-CONFIG_IP6_NF_MATCH_HL=y
-
-# === BBR Config ===
-CONFIG_TCP_CONG_ADVANCED=y
-CONFIG_TCP_CONG_BBR=y
-CONFIG_NET_SCH_FQ=y
-CONFIG_TCP_CONG_BIC=n
-CONFIG_TCP_CONG_WESTWOOD=n
-CONFIG_TCP_CONG_HTCP=n
-
-# === SUSFS Config ===
-CONFIG_KSU_SUSFS=y
-CONFIG_KSU_SUSFS_SUS_MAP=y
-CONFIG_KSU_SUSFS_SUS_MOUNT=y
-CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
-CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
-CONFIG_KSU_SUSFS_SUS_KSTAT=y
-CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
-CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-CONFIG_KSU_SUSFS_ENABLE_LOG=y
-CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-"""
-
     ZRAM_CONFIG_5_10 = "CONFIG_ZSMALLOC=y\nCONFIG_ZRAM=y\nCONFIG_MODULE_SIG=n\nCONFIG_CRYPTO_LZO=y\nCONFIG_ZRAM_DEF_COMP_LZ4KD=y\n"
     ZRAM_CONFIG_COMMON = "CONFIG_CRYPTO_LZ4HC=y\nCONFIG_CRYPTO_LZ4K=y\nCONFIG_CRYPTO_LZ4KD=y\nCONFIG_CRYPTO_842=y\nCONFIG_CRYPTO_LZ4K_OPLUS=y\nCONFIG_ZRAM_WRITEBACK=y\n"
 
@@ -132,6 +93,62 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
     def _chdir(self, path: Path):
         os.chdir(path)
         self.shell.cwd = str(path)
+
+    def _ksu_install_mode(self) -> str:
+        """SukiSU setup.sh 安装模式：builtin = SUSFS 内置编入；main = 非内置"""
+        if self.config.enable_susfs and self.config.susfs_builtin:
+            return "builtin"
+        return "main"
+
+    def _kernel_config_text(self) -> str:
+        """按开关生成追加到 gki_defconfig 的配置块（解耦：KPM / SUSFS 可独立开关）"""
+        lines = [""]
+        lines.append("# === KernelSU Config ===")
+        lines.append("CONFIG_KSU=y")
+        if self.config.use_kpm:
+            lines.append("CONFIG_KPM=y")
+        if self.config.enable_susfs:
+            lines.append("CONFIG_KSU_SUSFS_SUS_SU=n")
+
+        lines.append("")
+        lines.append("# === TMPFS Config ===")
+        lines.append("CONFIG_TMPFS_XATTR=y")
+        lines.append("CONFIG_TMPFS_POSIX_ACL=y")
+
+        lines.append("")
+        lines.append("# === Network Config ===")
+        lines.append("CONFIG_IP_NF_TARGET_TTL=y")
+        lines.append("CONFIG_IP6_NF_TARGET_HL=y")
+        lines.append("CONFIG_IP6_NF_MATCH_HL=y")
+
+        lines.append("")
+        lines.append("# === BBR Config ===")
+        lines.append("CONFIG_TCP_CONG_ADVANCED=y")
+        lines.append("CONFIG_TCP_CONG_BBR=y")
+        lines.append("CONFIG_NET_SCH_FQ=y")
+        lines.append("CONFIG_TCP_CONG_BIC=n")
+        lines.append("CONFIG_TCP_CONG_WESTWOOD=n")
+        lines.append("CONFIG_TCP_CONG_HTCP=n")
+
+        if self.config.enable_susfs:
+            lines.append("")
+            lines.append("# === SUSFS Config ===")
+            lines.append("CONFIG_KSU_SUSFS=y")
+            lines.append("CONFIG_KSU_SUSFS_SUS_MAP=y")
+            lines.append("CONFIG_KSU_SUSFS_SUS_MOUNT=y")
+            lines.append("CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y")
+            lines.append("CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y")
+            lines.append("CONFIG_KSU_SUSFS_SUS_KSTAT=y")
+            lines.append("CONFIG_KSU_SUSFS_TRY_UMOUNT=y")
+            lines.append("CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y")
+            lines.append("CONFIG_KSU_SUSFS_SPOOF_UNAME=y")
+            lines.append("CONFIG_KSU_SUSFS_ENABLE_LOG=y")
+            lines.append("CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y")
+            lines.append("CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y")
+            lines.append("CONFIG_KSU_SUSFS_OPEN_REDIRECT=y")
+            lines.append("CONFIG_KSU_SUSFS_SUS_PATH=y" if self.config.kernel_version != "6.6"
+                         else "CONFIG_KSU_SUSFS_SUS_PATH=n")
+        return "\n".join(lines) + "\n"
 
     def _apply_susfs_commit(self):
         if not self.config.susfs_commit or not self.susfs_dir.exists():
@@ -254,7 +271,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
         self._chdir(self.work_dir)
         setup_url = (f"https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/{self.config.kernelsu_commit}/kernel/setup.sh"
                     if self.config.kernelsu_commit else KSU_REPO_CONFIG["setup_script"])
-        self._run_cmd(f"curl -LSs {setup_url} | bash -s builtin", check=False)
+        self._run_cmd(f"curl -LSs {setup_url} | bash -s {self._ksu_install_mode()}", check=False)
         if self.config.kernelsu_commit:
             ksu_dir = self.work_dir / "KernelSU"
             if ksu_dir.exists():
@@ -286,6 +303,9 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
                 f.write(content)
 
     def apply_susfs_patches(self):
+        if not self.config.enable_susfs:
+            logger.info("=== 跳过 SUSFS 补丁（enable_susfs=false）===")
+            return
         logger.info("=== 应用 SUSFS 补丁 ===")
         self._chdir(self.work_dir)
         common_dir = self.work_dir / "common"
@@ -306,6 +326,9 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
                 self._chdir(self.work_dir)
 
     def apply_sukisu_patches(self):
+        if not self.config.enable_susfs:
+            logger.info("=== 跳过 SukiSU 补丁（69_hide_stuff，enable_susfs=false）===")
+            return
         logger.info("=== 应用 SukiSU 补丁 ===")
         self._chdir(self.work_dir / "common")
         hooks_patch = self.sukisu_patch_dir / "69_hide_stuff.patch"
@@ -332,6 +355,9 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
                 self._run_cmd(f"patch -p1 -F 3 < {p}", check=False)
 
     def apply_task_mmu_fixes(self):
+        if not self.config.enable_susfs:
+            logger.info("=== 跳过 task_mmu 修复（enable_susfs=false）===")
+            return
         logger.info("=== 应用 task_mmu.c 修复 ===")
         self._chdir(self.work_dir / "common")
         task_mmu = Path("fs/proc/task_mmu.c")
@@ -445,11 +471,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             return
 
         with open(config_file, "a") as f:
-            f.write(self.KERNEL_CONFIG_TEMPLATE)
-            if self.config.kernel_version != "6.6":
-                f.write("CONFIG_KSU_SUSFS_SUS_PATH=y\n")
-            else:
-                f.write("CONFIG_KSU_SUSFS_SUS_PATH=n\n")
+            f.write(self._kernel_config_text())
 
         if self.config.use_zram:
             self._configure_zram()

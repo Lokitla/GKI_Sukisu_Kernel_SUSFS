@@ -63,6 +63,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--susfs-commit", default=None)
     parser.add_argument("--zram", action="store_true")
     parser.add_argument("--no-kpm", action="store_true")
+    parser.add_argument("--no-susfs", dest="enable_susfs", action="store_false", default=True,
+                        help="不构建 SUSFS（关闭内核侧 SUSFS 补丁与配置）")
+    parser.add_argument("--susfs-main", dest="susfs_builtin", action="store_false", default=True,
+                        help="SukiSU 使用 main 模式（SUSFS 非内置；默认 builtin 内置）")
     parser.add_argument("--bbg", action="store_true")
     parser.add_argument("--op8e", action="store_true")
     parser.add_argument("--bbr", action="store_true")
@@ -104,6 +108,8 @@ def create_build_config(args: argparse.Namespace) -> BuildConfig:
         revision=args.revision,
         cve_2026_43499=args.cve_2026_43499,
         build_time=args.build_time,
+        enable_susfs=args.enable_susfs,
+        susfs_builtin=args.susfs_builtin,
     )
 
 
@@ -171,6 +177,8 @@ def build_matrix(matrix_key: str, args: argparse.Namespace, workspace: str) -> l
                 revision=cfg_data.get("revision"),
                 cve_2026_43499=args.cve_2026_43499,
                 build_time=args.build_time,
+                enable_susfs=args.enable_susfs,
+                susfs_builtin=args.susfs_builtin,
             )
 
             logger.info(f"\n{'=' * 60}\n构建配置: {config.config_name}\n{'=' * 60}")

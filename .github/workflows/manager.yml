@@ -1,0 +1,140 @@
+name: Get Manager (SukiSU / ReSukiSU)
+
+# 从所选 KernelSU 上游的 CI 产物中拉取 Manager APK（可含 Spoofed 伪装官方管理器版）
+on:
+  workflow_call:
+    inputs:
+      kernelsu_source:
+        description: 'KernelSU 来源 (SukiSU / ReSukiSU)'
+        required: true
+        type: string
+      spoofed:
+        description: '是否一并拉取 Spoofed（伪装官方 KernelSU）管理器'
+        required: false
+        type: boolean
+        default: true
+    outputs:
+      manager_count:
+        description: '拉到的 APK 数量'
+        value: ${{ jobs.get-manager.outputs.manager_count }}
+  workflow_dispatch:
+    inputs:
+      kernelsu_source:
+        description: 'KernelSU 来源'
+        required: true
+        type: choice
+        options:
+          - SukiSU
+          - ReSukiSU
+        default: SukiSU
+      spoofed:
+        description: '是否一并拉取 Spoofed（伪装官方 KernelSU）管理器'
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  get-manager:
+    runs-on: ubuntu-latest
+    outputs:
+      manager_count: ${{ steps.fetch.outputs.manager_count }}
+    steps:
+      - name: 拉取 Manager / Spoofed-Manager
+        id: fetch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE: ${{ inputs.kernelsu_source }}
+          SPOOFED: ${{ inputs.spoofed }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.request, zipfile, pathlib, shutil
+
+          token = os.environ["GH_TOKEN"]
+          source = os.environ["SOURCE"]
+          want_spoofed = os.environ.get("SPOOFED", "true").lower() == "true"
+
+          REPOS = {
+              "SukiSU": "SukiSU-Ultra/SukiSU-Ultra",
+              "ReSukiSU": "ReSukiSU/ReSukiSU",
+          }
+          repo = REPOS.get(source)
+          if not repo:
+              raise SystemExit(f"未知来源: {source}，可选: {list(REPOS)}")
+
+          def api(url):
+              req = urllib.request.Request(url, headers={
+                  "Authorization": f"token {token}",
+                  "Accept": "application/vnd.github+json",
+                  "User-Agent": "gki-sukisu-manager-fetch",
+              })
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  return json.loads(r.read())
+
+          runs = api(f"https://api.github.com/repos/{repo}/actions/workflows/build-manager.yml/runs?per_page=30&status=success").get("workflow_runs", [])
+          if not runs:
+              raise SystemExit(f"{repo} 未找到成功的 build-manager.yml 运行")
+
+          out = pathlib.Path("out")
+          shutil.rmtree(out, ignore_errors=True)
+          picked = {}
+          for run in runs:
+              arts = api(run["artifacts_url"] + "?per_page=50").get("artifacts", [])
+              for a in arts:
+                  n = a["name"].lower()
+                  if "manager" not in n or "gradle" in n or "mapping" in n:
+                      continue
+                  is_spoofed = "spoofed" in n
+                  if is_spoofed and not want_spoofed:
+                      continue
+                  if a["name"] in picked:
+                      continue
+                  picked[a["name"]] = (run["id"], a)
+              if picked:
+                  break
+
+          if not picked:
+              raise SystemExit(f"{repo} 最近的运行中没有可用 Manager 产物")
+
+          for name, (run_id, art) in picked.items():
+              req = urllib.request.Request(art["archive_download_url"], headers={
+                  "Authorization": f"token {token}",
+                  "Accept": "application/vnd.github+json",
+                  "User-Agent": "gki-sukisu-manager-fetch",
+              })
+              zip_path = out / f"{name}.zip"
+              with urllib.request.urlopen(req, timeout=180) as r, open(zip_path, "wb") as f:
+                  shutil.copyfileobj(r, f)
+              dest = out / name
+              with zipfile.ZipFile(zip_path) as z:
+                  z.extractall(dest)
+              zip_path.unlink()
+              apks = sorted(p for p in dest.rglob("*.apk")
+                            if "release" in p.name.lower()
+                            and ("arm64" in p.name.lower() or "universal" in p.name.lower()))
+              for p in apks:
+                  # 扁平化收集到 out/apk/ 便于后续一步上传/发布
+                  shutil.copy2(p, out / f"{name}-{p.name}")
+              print(f"[{name}] run {run_id}: {len(apks)} 个 APK")
+
+          final_apks = sorted(out.glob("*.apk")) if out.exists() else []
+          if not final_apks:
+              raise SystemExit("未解压到可用 APK")
+          for p in final_apks:
+              print("   ->", p.name, p.stat().st_size // 1024, "KiB")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"manager_count={len(final_apks)}\n")
+          print("picked:", ", ".join(picked))
+          PY
+
+      - name: 上传管理器 APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: manager-apk
+          path: out/*.apk
+          if-no-files-found: error
+          compression-level: 9
