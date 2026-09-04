@@ -113,6 +113,10 @@ class BuildConfig:
     make_release: bool = True
     custom_version: Optional[str] = None
     revision: Optional[str] = None
+    # GhostLock CVE-2026-43499 / CVE-2026-53163 修复链（融合自 zzh20188）
+    cve_2026_43499: bool = False
+    # 固定构建时间伪装，格式 "%a %b %d %H:%M:%S UTC %Y"，N/空 = 当前 UTC
+    build_time: Optional[str] = None
     build_id: Optional[str] = None
 
     def __post_init__(self):
@@ -183,6 +187,8 @@ class BuildConfig:
             "make_release": self.make_release,
             "custom_version": self.custom_version,
             "revision": self.revision,
+            "cve_2026_43499": self.cve_2026_43499,
+            "build_time": self.build_time,
             "build_id": self.build_id,
         }
 

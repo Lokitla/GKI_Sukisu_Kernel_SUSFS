@@ -69,6 +69,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-release", action="store_true")
     parser.add_argument("--custom-version", dest="custom_version", default=None)
     parser.add_argument("--revision")
+    parser.add_argument("--cve-2026-43499", dest="cve_2026_43499", action="store_true",
+                        help="应用 GhostLock CVE-2026-43499/53163 rtmutex 修复链")
+    parser.add_argument("--build-time", dest="build_time", default=os.environ.get("GKI_BUILD_TIME"),
+                        help="固定构建时间 (如 'Tue Oct 21 03:03:12 UTC 2025'，N/空=当前UTC)")
     parser.add_argument("--matrix", "-m")
     parser.add_argument("--all", action="store_true")
     parser.add_argument("--list-configs", action="store_true")
@@ -98,6 +102,8 @@ def create_build_config(args: argparse.Namespace) -> BuildConfig:
         make_release=not args.no_release,
         custom_version=args.custom_version,
         revision=args.revision,
+        cve_2026_43499=args.cve_2026_43499,
+        build_time=args.build_time,
     )
 
 
@@ -163,6 +169,8 @@ def build_matrix(matrix_key: str, args: argparse.Namespace, workspace: str) -> l
                 make_release=not args.no_release,
                 custom_version=args.custom_version,
                 revision=cfg_data.get("revision"),
+                cve_2026_43499=args.cve_2026_43499,
+                build_time=args.build_time,
             )
 
             logger.info(f"\n{'=' * 60}\n构建配置: {config.config_name}\n{'=' * 60}")

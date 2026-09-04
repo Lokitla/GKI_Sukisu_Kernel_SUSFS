@@ -30,6 +30,16 @@ on:
         required: false
         type: string
         default: ''
+      cve_2026_43499_patch:
+        description: '应用 CVE-2026-43499 rtmutex 修复链 (GhostLock)'
+        required: true
+        type: boolean
+        default: false
+      build_time:
+        description: '固定构建时间 (可选，如 Tue Oct 21 03:03:12 UTC 2025；N 或留空=当前UTC)'
+        required: false
+        type: string
+        default: ''
       use_zram:
         description: '启用 ZRAM (LZ4KD)'
         required: true
@@ -144,6 +154,8 @@ jobs:
           cache_bucket: ccache-cache
 
       - name: Build kernel
+        env:
+          GKI_BUILD_TIME: ${{ github.event.inputs.build_time }}
         run: |
           cd ${{ env.SCRIPTS_DIR }}
 
@@ -158,6 +170,7 @@ jobs:
           [ "${{ github.event.inputs.use_zram }}" = "true" ] && ARGS="$ARGS --zram"
           [ "${{ github.event.inputs.use_kpm }}" = "false" ] && ARGS="$ARGS --no-kpm"
           [ "${{ github.event.inputs.BBG }}" = "true" ] && ARGS="$ARGS --bbg"
+          [ "${{ github.event.inputs.cve_2026_43499_patch }}" = "true" ] && ARGS="$ARGS --cve-2026-43499"
           [ -z "${{ github.event.inputs.kernelsu_commit }}" ] || ARGS="$ARGS --ksu-commit=${{ github.event.inputs.kernelsu_commit }}"
           [ -z "${{ github.event.inputs.susfs_commit }}" ] || ARGS="$ARGS --susfs-commit=${{ github.event.inputs.susfs_commit }}"
           [ -z "${{ github.event.inputs.custom_version }}" ] || ARGS="$ARGS --custom-version=${{ github.event.inputs.custom_version }}"

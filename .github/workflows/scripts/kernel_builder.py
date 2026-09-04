@@ -1,7 +1,8 @@
 import os
+import re
+import datetime
 import subprocess
 import logging
-import re
 from pathlib import Path
 from typing import Optional, Callable
 from dataclasses import dataclass, field
@@ -9,6 +10,9 @@ from dataclasses import dataclass, field
 from config import (BuildConfig, KSU_REPO_CONFIG, SUSFS_REPO_CONFIG, SUKISU_PATCH_REPO_CONFIG,
                    ANYKERNEL_CONFIG, KERNEL_PATCHES_CONFIG, BBG_CONFIG, TOOLCHAIN_CONFIG,
                    LEGACY_FIXES, OP8E_PATCH_URL, KPM_PATCH_URL)
+
+# 仓库根目录（本文件位于 <root>/.github/workflows/scripts/ 下）
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -401,6 +405,37 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             with open(base_c, "w") as f:
                 f.write(content)
 
+    def _read_actual_sublevel(self, common_dir: Path) -> str:
+        makefile = common_dir / "Makefile"
+        try:
+            if makefile.exists():
+                m = re.search(r'^SUBLEVEL\s*=\s*(\d+)', makefile.read_text(), re.MULTILINE)
+                if m:
+                    return m.group(1)
+        except OSError:
+            pass
+        return str(self.config.get_sub_level_int() or 99999)
+
+    def apply_cve_2026_43499_fix(self):
+        if not self.config.cve_2026_43499:
+            return
+        script = REPO_ROOT / "security_patch" / "apply_cve_2026_43499.sh"
+        common_dir = self.work_dir / "common"
+        if not script.exists():
+            logger.warning(f"CVE 修复脚本不存在，跳过: {script}")
+            return
+        if not common_dir.exists():
+            logger.warning("common 目录不存在，跳过 CVE 修复")
+            return
+        sub = self._read_actual_sublevel(common_dir)
+        logger.info(f"=== 应用 GhostLock CVE-2026-43499/53163 修复链 (kernel {self.config.kernel_version}.{sub}) ===")
+        self._chdir(common_dir)
+        result = self._run_cmd(f"bash {script} {self.config.kernel_version} {sub} {REPO_ROOT / 'security_patch'}",
+                      check=False)
+        self._chdir(self.work_dir)
+        if result.returncode != 0:
+            raise RuntimeError(f"CVE-2026-43499 修复链应用失败 (exit {result.returncode})，请查看上方输出")
+
     def configure_kernel(self):
         logger.info("=== 配置内核 ===")
         self._chdir(self.work_dir)
@@ -467,33 +502,64 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
         with open(config_file, "a") as f:
             f.write("CONFIG_MODULE_SIG_FORCE=n\n")
 
+    def _resolve_build_time(self) -> str:
+        """固定构建时间伪装；N/空 = 当前 UTC。格式: %a %b %d %H:%M:%S UTC %Y"""
+        raw = (self.config.build_time or "").strip()
+        if raw and raw.upper() != "N":
+            try:
+                parsed = datetime.datetime.strptime(raw, "%a %b %d %H:%M:%S UTC %Y")
+                return parsed.strftime("%a %b %d %H:%M:%S UTC %Y")
+            except ValueError:
+                logger.warning(
+                    f"build_time 格式无效({raw!r})，退回当前 UTC。期望格式如 'Tue Oct 21 03:03:12 UTC 2025'")
+        return datetime.datetime.utcnow().strftime("%a %b %d %H:%M:%S UTC %Y")
+
     def configure_kernel_name(self):
         logger.info("=== 配置内核名称 ===")
         self._chdir(self.work_dir)
-        MAX_CUSTOM_LEN = 48
-        safe_custom_version = ""
+        MAX_CUSTOM_LEN = 64
+        # 生成精确的内核 LOCALVERSION 后缀，如 "-android12-9-00003-gfb24cf99ad97-ab14313284"
+        custom_suffix = ""
         if self.config.custom_version:
-            safe_custom_version = self.config.custom_version.rstrip('-')[:MAX_CUSTOM_LEN]
+            v = self.config.custom_version.strip()
+            v = re.sub(r'^[0-9]+\.[0-9]+\.[0-9]+', '', v)  # 兼容传入完整 "5.10.236-…" 形式
+            if v and v[0] in "-+":
+                v = v[1:]
+            v = v.rstrip('-')[:MAX_CUSTOM_LEN]
+            if v:
+                custom_suffix = "-" + v
 
         setlocalversion = self.work_dir / "common/scripts/setlocalversion"
         if setlocalversion.exists():
             with open(setlocalversion, "r") as f:
                 content = f.read()
-            if safe_custom_version:
-                lines = content.split('\n')
-                for i, line in enumerate(lines):
-                    if 'echo "$res"' in line and not line.strip().startswith('#'):
-                        lines[i] = f'\techo "{safe_custom_version}$res"'
-                        break
+            if custom_suffix:
+                # 5.x 经典形态：把最终 echo "$res" 替换为固定后缀 → 精确控制内核名
+                new_content = re.sub(
+                    r'^(\s*)echo "\$res"',
+                    lambda m: f'{m.group(1)}echo "{custom_suffix}"',
+                    content, count=1, flags=re.MULTILINE)
+                # 6.x 形态：整串 echo（含 KERNELVERSION/file_localversion/…）同样改写
+                new_content = re.sub(
+                    r'echo "\$\{KERNELVERSION\}\$\{file_localversion\}\$\{config_localversion\}\$\{LOCALVERSION\}\$\{scm_version\}"',
+                    f'echo "${{KERNELVERSION}}{custom_suffix}"',
+                    new_content)
                 with open(setlocalversion, "w") as f:
-                    f.write('\n'.join(lines))
+                    f.write(new_content)
+                content = new_content
+                # 兜底：defconfig 的 CONFIG_LOCALVERSION 也写同一后缀
+                config_file = self.work_dir / "common/arch/arm64/configs/gki_defconfig"
+                if config_file.exists():
+                    cfg = config_file.read_text()
+                    cfg = re.sub(r'^CONFIG_LOCALVERSION=".*"$',
+                                 f'CONFIG_LOCALVERSION="{custom_suffix}"', cfg, flags=re.MULTILINE)
+                    config_file.write_text(cfg)
             if "-dirty" in content:
                 content = content.replace("-dirty", "")
                 with open(setlocalversion, "w") as f:
                     f.write(content)
 
-        import datetime
-        current_time = datetime.datetime.utcnow().strftime("%a %b %d %H:%M:%S UTC %Y")
+        current_time = self._resolve_build_time()
         mkcompile_h = self.work_dir / "common/scripts/mkcompile_h"
         if mkcompile_h.exists():
             with open(mkcompile_h, "r") as f:
@@ -539,17 +605,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
                 content = content.replace("-maybe-dirty", "")
                 with open(stamp_bzl, "w") as f:
                     f.write(content)
-
-            if self.config.custom_version:
-                config_file = self.work_dir / "common/arch/arm64/configs/gki_defconfig"
-                if config_file.exists():
-                    with open(config_file, "r") as f:
-                        content = f.read()
-                    content = re.sub(r'^CONFIG_LOCALVERSION=".*"$', f'CONFIG_LOCALVERSION="{self.config.custom_version}"', content, flags=re.MULTILINE)
-                    with open(config_file, "w") as f:
-                        f.write(content)
-                else:
-                    logger.warning(f"配置文件不存在，跳过 custom_version 设置: {config_file}")
+            # CONFIG_LOCALVERSION 已在 configure_kernel_name 中与 setlocalversion 一并写死（custom_suffix）
 
     def show_kernel_config(self):
         logger.info("=== 显示内核配置列表 ===")
@@ -743,6 +799,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             self.apply_sukisu_patches()
             self.apply_zram_patches()
             self.apply_task_mmu_fixes()
+            self.apply_cve_2026_43499_fix()
             self.configure_kernel()
             self.configure_kernel_name()
             self.show_kernel_config()
