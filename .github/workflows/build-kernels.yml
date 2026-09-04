@@ -6,16 +6,8 @@ on:
   workflow_dispatch:
     inputs:
       # ==================== SukiSU / SUSFS ====================
-      kernelsu_version:
-        description: 'SukiSU 版本'
-        required: true
-        type: choice
-        options:
-          - Stable(标准)
-          - Dev(开发)
-        default: Stable(标准)
       kernelsu_commit:
-        description: '指定 SukiSU commit hash (可选，留空=最新)'
+        description: '指定 SukiSU commit hash (可选，留空=分支最新)'
         required: false
         type: string
         default: ''
@@ -29,11 +21,15 @@ on:
         required: true
         type: boolean
         default: true
-      susfs_builtin:
-        description: 'SUSFS 内置（SukiSU builtin 模式；关闭=main 非内置）'
+      sukisu_branch:
+        description: 'SukiSU 分支/ref（builtin=SUSFS 内置源码）'
         required: true
-        type: boolean
-        default: true
+        type: choice
+        options:
+          - builtin
+          - main
+          - dev
+        default: builtin
 
       # ==================== 功能开关 ====================
       use_kpm:
@@ -235,12 +231,11 @@ jobs:
           ARGS="$ARGS --sub-level ${{ matrix.config.sub_level }}"
           ARGS="$ARGS --os-patch ${{ matrix.config.os_patch }}"
           [ -n "${{ matrix.config.revision }}" ] && ARGS="$ARGS --revision ${{ matrix.config.revision }}"
-          ARGS="$ARGS --ksu-version ${{ inputs.kernelsu_version }}"
           ARGS="$ARGS --no-release"
 
-          # SUSFS / KPM / 特性（解耦勾选）
+          # SUSFS / SukiSU 分支 / KPM / 特性（解耦勾选）
           [ "${{ inputs.enable_susfs }}" = "true" ] || ARGS="$ARGS --no-susfs"
-          [ "${{ inputs.susfs_builtin }}" = "true" ] || ARGS="$ARGS --susfs-main"
+          [ "${{ inputs.sukisu_branch }}" != "builtin" ] && ARGS="$ARGS --ksu-branch=${{ inputs.sukisu_branch }}"
           [ "${{ inputs.use_kpm }}" = "disabled (关闭)" ] && ARGS="$ARGS --no-kpm"
           [ "${{ inputs.use_zram }}" = "true" ] && ARGS="$ARGS --zram"
           [ "${{ inputs.BBG }}" = "true" ] && ARGS="$ARGS --bbg"

@@ -52,14 +52,6 @@ on:
         required: false
         type: string
         default: ''
-      kernelsu_version:
-        description: 'SukiSU 版本'
-        required: true
-        type: choice
-        options:
-          - Stable(标准)
-          - Dev(开发)
-        default: Stable(标准)
 
       # ==================== KernelSU / SUSFS ====================
       enable_susfs:
@@ -67,11 +59,15 @@ on:
         required: true
         type: boolean
         default: true
-      susfs_builtin:
-        description: 'SUSFS 内置（SukiSU builtin 模式；关闭=main 非内置）'
+      sukisu_branch:
+        description: 'SukiSU 分支/ref（builtin=SUSFS 内置源码）'
         required: true
-        type: boolean
-        default: true
+        type: choice
+        options:
+          - builtin
+          - main
+          - dev
+        default: builtin
 
       # ==================== 功能开关 ====================
       use_kpm:
@@ -231,11 +227,10 @@ jobs:
           ARGS="$ARGS --sub-level ${{ github.event.inputs.sub_level }}"
           ARGS="$ARGS --os-patch ${{ github.event.inputs.os_patch_level }}"
           [ -n "${{ github.event.inputs.revision }}" ] && ARGS="$ARGS --revision ${{ github.event.inputs.revision }}"
-          ARGS="$ARGS --ksu-version ${{ github.event.inputs.kernelsu_version }}"
 
-          # SUSFS / KPM / 特性（解耦勾选）
+          # SUSFS / SukiSU 分支 / KPM / 特性（解耦勾选）
           [ "${{ github.event.inputs.enable_susfs }}" = "true" ] || ARGS="$ARGS --no-susfs"
-          [ "${{ github.event.inputs.susfs_builtin }}" = "true" ] || ARGS="$ARGS --susfs-main"
+          [ "${{ github.event.inputs.sukisu_branch }}" != "builtin" ] && ARGS="$ARGS --ksu-branch=${{ github.event.inputs.sukisu_branch }}"
           [ "${{ github.event.inputs.use_kpm }}" = "disabled (关闭)" ] && ARGS="$ARGS --no-kpm"
           [ "${{ github.event.inputs.use_zram }}" = "true" ] && ARGS="$ARGS --zram"
           [ "${{ github.event.inputs.BBG }}" = "true" ] && ARGS="$ARGS --bbg"
@@ -290,7 +285,7 @@ jobs:
             "${{ github.event.inputs.kernel_version }}" \
             "${{ github.event.inputs.sub_level }}" \
             "${{ github.event.inputs.os_patch_level }}" \
-            "${{ github.event.inputs.kernelsu_version }}" \
+            "SukiSU" \
             "${{ github.event.inputs.use_zram }}" \
             "${{ (github.event.inputs.use_kpm != 'disabled (关闭)') && 'true' || 'false' }}" \
             "../../SHA256SUMS.txt"

@@ -28,8 +28,8 @@
 4. （可选）`自定义版本名称` 填伪装名（见 §3.3），`自定义构建时间` 填如 `Tue Oct 21 03:03:12 UTC 2025`
 5. 产物：`android12-5.10.236-2025-05-AnyKernel3.zip` / `*boot*.img` / 管理器 APK（`manager-apk` 产物）
 
-> **默认值即推荐配置**：构建 SUSFS ✅ / SUSFS 内置 ✅ / KPM = enabled ✅ / LZ4KD ✅ / BBG ✅ / CVE 修复 ✅ / 管理器 SukiSU + Spoofed ✅ / Telegram ✅。
-> 全部为勾选/下拉项，可随时关闭：`KPM` 三态（关闭/开启/开启+修补镜像）、`SUSFS 内置`（关掉即 SukiSU main 非内置）、`是否构建 SUSFS`、`CVE`、`LZ4KD`、`BBG`、`内核名伪装`、`构建时间伪装`、管理器来源（SukiSU/ReSukiSU）+ 是否 Spoofed。
+> **默认值即推荐配置**：构建 SUSFS ✅ / SukiSU 分支=builtin（SUSFS 内置）✅ / KPM = enabled ✅ / LZ4KD ✅ / BBG ✅ / CVE 修复 ✅ / 管理器 SukiSU + Spoofed ✅ / Telegram ✅。
+> 全部为勾选/下拉项，可随时关闭或切换：`SukiSU 分支`（**builtin**=SUSFS 内置源码 / main / dev）、`是否构建 SUSFS`、`KPM` 三态（关闭/开启/开启+修补镜像）、`CVE`、`LZ4KD`、`BBG`、`内核名伪装`、`构建时间伪装`、`BBR 默认`、`OnePlus 8E`（两两独立）、管理器来源（SukiSU/ReSukiSU）+ 是否 Spoofed。
 > 完整矩阵 + **自动 Release** 在 **Build Kernels** 工作流（默认开），Release 会附带 Manager APK。
 
 ### 方式二：构建所有版本
@@ -67,10 +67,10 @@ python build.py --list-configs / --list-matrix
 | `--susfs-commit` | SUSFS commit(hash/HEAD~N) | latest |
 | `--zram` | ZRAM LZ4KD | False |
 | `--no-kpm` | 关闭 KPM（含 defconfig 与镜像修补） | False |
-| `--no-susfs` | **关闭 SUSFS（内核侧补丁/配置/内置全停）** | False |
-| `--susfs-main` | **SukiSU 用 main 模式（SUSFS 非内置）** | False(=builtin) |
+| `--no-susfs` | **关闭 SUSFS（内核侧补丁/配置全停，SukiSU 自动回退 main）** | False |
+| `--ksu-branch` | **SukiSU 分支 main/dev/builtin**（builtin=SUSFS 内置） | builtin |
 | `--bbg` | Baseband-guard | False |
-| `--op8e` | OnePlus 8E（非一加勿开） | False |
+| `--op8e` | OnePlus 8E 支持（**与 BBR 相互独立**，非一加勿开） | False |
 | `--bbr` | BBR 默认拥塞 | False |
 | `--cve-2026-43499` | **GhostLock 修复链** | False(UI 默认勾选) |
 | `--custom-version` | **伪装内核名后缀**（`-…` 或完整 `5.10.236-…`） | - |
@@ -90,7 +90,7 @@ python build.py --list-configs / --list-matrix
 
 | 功能 | 说明 |
 |---|---|
-| SukiSU-Ultra | 默认变体；`setup.sh … builtin` → **SUSFS 内置**（inline hooks + magic mount） |
+| SukiSU-Ultra | 分支可选 `builtin`(默认, SUSFS 内置源码+inline hooks+magic mount) / `main` / `dev` |
 | SUSFS | 全特性 spoof（UNAME/CMDLINE/KSTAT/SUS_MAP/OPEN_REDIRECT/HIDE_SYMBOLS…）+ `69_hide_stuff.patch` |
 | GhostLock 修复 | CVE-2026-43499 + CVE-2026-53163 完整链（可选开关） |
 | KPM | 5.x 内核 Image 修补（KernelPatch 模块支持）；6.6 不支持 |

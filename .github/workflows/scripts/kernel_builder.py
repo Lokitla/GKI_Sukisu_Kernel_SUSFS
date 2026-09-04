@@ -94,11 +94,14 @@ class KernelBuilder:
         os.chdir(path)
         self.shell.cwd = str(path)
 
-    def _ksu_install_mode(self) -> str:
-        """SukiSU setup.sh 安装模式：builtin = SUSFS 内置编入；main = 非内置"""
-        if self.config.enable_susfs and self.config.susfs_builtin:
-            return "builtin"
-        return "main"
+    def _resolve_sukisu_ref(self) -> str:
+        """最终传给 SukiSU setup.sh 的 checkout ref。
+        优先级：kernelsu_commit > kernelsu_branch(main/dev/builtin，默认 builtin=SUSFS 内置)。
+        关闭 SUSFS 时 builtin 自动回退 main（无内置源码可编）。"""
+        ref = self.config.kernelsu_commit or self.config.kernelsu_branch or "builtin"
+        if not self.config.enable_susfs and ref == "builtin":
+            return "main"
+        return ref
 
     def _kernel_config_text(self) -> str:
         """按开关生成追加到 gki_defconfig 的配置块（解耦：KPM / SUSFS 可独立开关）"""
@@ -269,15 +272,10 @@ class KernelBuilder:
     def add_kernelsu(self):
         logger.info("=== 添加 KernelSU ===")
         self._chdir(self.work_dir)
-        setup_url = (f"https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/{self.config.kernelsu_commit}/kernel/setup.sh"
-                    if self.config.kernelsu_commit else KSU_REPO_CONFIG["setup_script"])
-        self._run_cmd(f"curl -LSs {setup_url} | bash -s {self._ksu_install_mode()}", check=False)
-        if self.config.kernelsu_commit:
-            ksu_dir = self.work_dir / "KernelSU"
-            if ksu_dir.exists():
-                self._chdir(ksu_dir)
-                self._run_cmd(f"git checkout {self.config.kernelsu_commit}", check=False)
-                self._chdir(self.work_dir)
+        ref = self._resolve_sukisu_ref()
+        logger.info(f"SukiSU ref: {ref}")
+        # setup.sh 会把 KernelSU 仓库 checkout 到该 ref（builtin 分支 = SUSFS 内置源码）
+        self._run_cmd(f"curl -LSs {KSU_REPO_CONFIG['setup_script']} | bash -s {ref}", check=False)
 
     def add_bbg(self):
         if not self.config.use_bbg:

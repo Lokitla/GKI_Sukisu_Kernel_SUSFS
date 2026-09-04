@@ -119,8 +119,8 @@ class BuildConfig:
     build_time: Optional[str] = None
     # 是否把 SUSFS 打进内核（内核侧 kernel_patches/defconfig；关闭则完全不带 SUSFS）
     enable_susfs: bool = True
-    # SukiSU 使用 builtin 模式（SUSFS 内置编入 KernelSU）还是 main（非内置）
-    susfs_builtin: bool = True
+    # SukiSU 源码分支/ref（main/dev/builtin；builtin = SUSFS 内置源码）
+    kernelsu_branch: str = "builtin"
     build_id: Optional[str] = None
 
     def __post_init__(self):
@@ -194,7 +194,7 @@ class BuildConfig:
             "cve_2026_43499": self.cve_2026_43499,
             "build_time": self.build_time,
             "enable_susfs": self.enable_susfs,
-            "susfs_builtin": self.susfs_builtin,
+            "kernelsu_branch": self.kernelsu_branch,
             "build_id": self.build_id,
         }
 
