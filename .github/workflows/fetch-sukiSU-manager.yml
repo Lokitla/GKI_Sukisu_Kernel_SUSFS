@@ -1,0 +1,98 @@
+name: Fetch SukiSU Manager (Spoofed)
+
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: '需要拉取的管理器产物'
+        required: true
+        type: choice
+        options:
+          - Both (Manager + Spoofed-Manager)
+          - Spoofed-Manager
+          - Manager
+        default: 'Both (Manager + Spoofed-Manager)'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 从 SukiSU-Ultra CI 拉取 Manager / Spoofed-Manager
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.request, zipfile, pathlib, shutil
+
+          token = os.environ["GH_TOKEN"]
+          repo = "SukiSU-Ultra/SukiSU-Ultra"
+          variant = "${{ github.event.inputs.variant }}"
+          want = []
+          if "Both" in variant:
+              want = ["Manager", "Spoofed-Manager"]
+          else:
+              want = [variant.strip()]
+
+          def api(url):
+              req = urllib.request.Request(url, headers={
+                  "Authorization": f"token {token}",
+                  "Accept": "application/vnd.github+json",
+                  "User-Agent": "gki-sukisu-manager-fetch",
+              })
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  return json.loads(r.read())
+
+          runs_url = f"https://api.github.com/repos/{repo}/actions/workflows/build-manager.yml/runs?per_page=30&status=success"
+          runs = api(runs_url).get("workflow_runs", [])
+          if not runs:
+              raise SystemExit("未找到 SukiSU-Ultra build-manager.yml 的成功运行")
+
+          fetched = {}
+          # 逐个 run 找齐所需产物（最多看 10 个 run）
+          for run in runs:
+              arts = api(run["artifacts_url"] + "?per_page=50").get("artifacts", [])
+              by_name = {a["name"]: a for a in arts}
+              for name in list(want):
+                  if name in by_name and name not in fetched:
+                      fetched[name] = (run["id"], by_name[name])
+              if all(n in fetched for n in want):
+                  break
+
+          out = pathlib.Path("out")
+          shutil.rmtree(out, ignore_errors=True)
+          for name, (run_id, art) in fetched.items():
+              url = art["archive_download_url"]
+              req = urllib.request.Request(url, headers={
+                  "Authorization": f"token {token}",
+                  "Accept": "application/vnd.github+json",
+                  "User-Agent": "gki-sukisu-manager-fetch",
+              })
+              zip_path = out / f"{name}.zip"
+              with urllib.request.urlopen(req, timeout=120) as r, open(zip_path, "wb") as f:
+                  shutil.copyfileobj(r, f)
+              dest = out / name
+              with zipfile.ZipFile(zip_path) as z:
+                  z.extractall(dest)
+              zip_path.unlink()
+              apks = sorted(p for p in dest.rglob("*.apk")
+                            if "release" in p.name.lower() and ("arm64" in p.name.lower() or "universal" in p.name.lower()))
+              print(f"[{name}] 来自 run {run_id}，解压出 {len(list(dest.rglob('*.apk')))} 个 apk")
+              for p in apks:
+                  print("   ->", p.name, p.stat().st_size // 1024, "KiB")
+          if not fetched:
+              raise SystemExit("在最近的运行中找不到产物: " + ", ".join(want))
+          print("fetched:", ", ".join(fetched))
+          PY
+
+      - name: 上传管理器产物
+        uses: actions/upload-artifact@v7
+        with:
+          name: SukiSU-Managers
+          path: out/
+          if-no-files-found: error
+          compression-level: 9

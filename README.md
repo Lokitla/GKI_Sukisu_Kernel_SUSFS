@@ -91,7 +91,7 @@ python build.py --list-configs / --list-matrix
 | ZRAM LZ4KD | LZ4K/LZ4KD/842/lz4k_oplus 等（Scene 可切） |
 | BBG | Baseband-guard 基带防格机 |
 | 伪装 | 精确内核名 + 固定构建时间（见 §3.3） |
-| 管理器 | SukiSU 构建产物自动带 Manager；需要伪装成官方 KernelSU 的 Manager 可改用 SukiSU 上游 CI 的 `Spoofed-Manager` 产物 |
+| 管理器 | SukiSU 构建产物自动带 Manager；需要伪装成官方 KernelSU 的 Manager 可运行 Actions → **Fetch SukiSU Manager (Spoofed)** 手动拉取 `Spoofed-Manager`/`Manager` APK |
 
 ## 5. 版本矩阵（matrix.json → 19 组合）
 
