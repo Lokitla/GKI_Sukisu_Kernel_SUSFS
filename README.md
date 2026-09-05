@@ -118,3 +118,4 @@ python build.py --list-configs / --list-matrix
 ---
 
 *开发提示：修改引擎后先 `python3 -m py_compile *.py`；版本伪装改动请用 §2 dry-run 或 CI 中 `strings Image | grep 'Linux version'` 复核。*
+"# GKI_Sukisu_Kernel_SUSFS" 
