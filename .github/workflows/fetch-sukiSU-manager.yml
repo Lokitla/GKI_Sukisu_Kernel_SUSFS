@@ -65,6 +65,7 @@ jobs:
 
           out = pathlib.Path("out")
           shutil.rmtree(out, ignore_errors=True)
+          out.mkdir(parents=True, exist_ok=True)
           for name, (run_id, art) in fetched.items():
               zip_path = out / f"{name}.zip"
               # GitHub 会把 Actions 产物下载 302 到 Azure Blob 带签名 URL；

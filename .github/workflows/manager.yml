@@ -83,6 +83,7 @@ jobs:
 
           out = pathlib.Path("out")
           shutil.rmtree(out, ignore_errors=True)
+          out.mkdir(parents=True, exist_ok=True)
           picked = {}
           for run in runs:
               arts = api(run["artifacts_url"] + "?per_page=50").get("artifacts", [])
