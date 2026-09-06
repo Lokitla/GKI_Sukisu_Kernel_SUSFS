@@ -192,15 +192,19 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update && sudo apt upgrade -y
-          sudo apt install -y ccache python3 git curl wget zip unzip xz-utils openssl pixz
-          pip install PyYAML
+          sudo apt install -y ccache python3 git curl wget zip unzip xz-utils openssl pixz zstd
+          pip install PyYAML python-multipart
 
       - name: Setup AVB signing key
         env:
           BOOT_SIGN_KEY: ${{ secrets.BOOT_SIGN_KEY }}
         run: |
           mkdir -p toolchain/linux-x86/bin
-          echo "$BOOT_SIGN_KEY" > toolchain/linux-x86/bin/testkey.pem
+          if [ -n "$BOOT_SIGN_KEY" ]; then
+            echo "$BOOT_SIGN_KEY" > toolchain/linux-x86/bin/testkey.pem
+          else
+            openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 > toolchain/linux-x86/bin/testkey.pem
+          fi
           echo "BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/toolchain/linux-x86/bin/testkey.pem" >> $GITHUB_ENV
 
       - name: Configure ccache
@@ -419,10 +423,10 @@ jobs:
               "${{ needs.prepare.outputs.kernel_version }}" \
               "${{ steps.get-release-url.outputs.release_url }}" \
               "${{ env.WORKSPACE_ROOT }}/release-files/RELEASE_BODY.md" \
-              "" "" "$SUCCESS" "$FAILED"
+              "" "" "$SUCCESS" "$FAILED" || true
           else
             python3 ${{ env.SCRIPTS_DIR }}/telegram_notify.py release \
               "${{ needs.prepare.outputs.kernel_version }}" \
               "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-              "" "" "" "0" "${{ steps.prepare-summary.outputs.total }}"
+              "" "" "" "0" "${{ steps.prepare-summary.outputs.total }}" || true
           fi

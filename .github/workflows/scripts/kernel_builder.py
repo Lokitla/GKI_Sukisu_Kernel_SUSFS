@@ -195,8 +195,28 @@ class KernelBuilder:
         self.env["AVBTOOL"] = str(self.toolchain_dir / "linux-x86/bin/avbtool")
         self.env["MKBOOTIMG"] = str(self.mkbootimg_dir / "mkbootimg.py")
         self.env["UNPACK_BOOTIMG"] = str(self.mkbootimg_dir / "unpack_bootimg.py")
-        if "BOOT_SIGN_KEY_PATH" in os.environ:
-            self.env["BOOT_SIGN_KEY_PATH"] = os.environ["BOOT_SIGN_KEY_PATH"]
+
+        # AVB 签名密钥：优先用工作流已生成的 BOOT_SIGN_KEY_PATH（可为 secret 或现签），
+        # 否则在本地 workspace 下现生成测试密钥，保证 boot.img 签名步骤不会因空 key 坏掉。
+        key_dir = self.toolchain_dir / "linux-x86/bin"
+        key_dir.mkdir(parents=True, exist_ok=True)
+        key_path = key_dir / "testkey.pem"
+        env_key_path = os.environ.get("BOOT_SIGN_KEY_PATH", "").strip()
+        if env_key_path and Path(env_key_path).exists() and Path(env_key_path).stat().st_size > 0:
+            self.env["BOOT_SIGN_KEY_PATH"] = env_key_path
+        else:
+            key_ok = key_path.exists() and key_path.stat().st_size > 0
+            if not key_ok:
+                secret_key = os.environ.get("BOOT_SIGN_KEY", "").strip()
+                if secret_key:
+                    key_path.write_text(secret_key, encoding="utf-8")
+                    logger.info("已写入 BOOT_SIGN_KEY 到 AVB 测试密钥")
+                else:
+                    self._run_cmd(
+                        f"openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 > {key_path}",
+                        check=False)
+                    logger.info("未提供 BOOT_SIGN_KEY，已现场生成 AVB 测试密钥")
+            self.env["BOOT_SIGN_KEY_PATH"] = str(key_path)
         self.shell.env = self.env
         logger.info("=== 工具链准备完成 ===")
 
@@ -292,13 +312,44 @@ class KernelBuilder:
                 f.write("CONFIG_BBG=y\n")
         kconfig_file = common_dir / "security/Kconfig"
         if kconfig_file.exists():
-            with open(kconfig_file, "r") as f:
-                content = f.read()
-            content = re.sub(r'(config LSM.*?)(default .*)(\n.*?help)',
-                           lambda m: m.group(1) + ('lockdown,baseband_guard' if 'lockdown' in m.group(2) and 'baseband_guard' not in m.group(2) else m.group(2)) + m.group(3),
-                           content, flags=re.DOTALL)
-            with open(kconfig_file, "w") as f:
-                f.write(content)
+            self._add_baseband_guard_to_lsm_default(kconfig_file)
+
+    def _add_baseband_guard_to_lsm_default(self, kconfig_file: Path):
+        """把 baseband_guard 注入 security/Kconfig 中 config LSM 块的 default 行。
+
+        只精确替换该块内的 default 行（在 selinux 后追加 ,baseband_guard），
+        绝不重写其它内容 —— 与 zzh20188 build.yml 的 sed 逻辑一致，
+        避免旧实现里 DOTALL 正则把整个 LSM/help 块吃坏导致 Kconfig 语法错误。
+        """
+        try:
+            with open(kconfig_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except OSError:
+            return
+
+        start = None
+        for i, line in enumerate(lines):
+            if re.match(r'^[ \t]*config[ \t]+LSM[ \t]*$', line):
+                start = i
+                break
+        if start is None:
+            return
+
+        # 定位到块内（到下一个 config 为止）的所有 default 行并逐一注入 baseband_guard
+        changed = False
+        for i in range(start + 1, len(lines)):
+            if re.match(r'^[ \t]*config[ \t]+', lines[i]):
+                break
+            line = lines[i]
+            if re.match(r'^[ \t]*default[ \t]', line) and "baseband_guard" not in line \
+                    and "selinux" in line:
+                lines[i] = line.replace("selinux", "selinux,baseband_guard", 1)
+                changed = True
+
+        if changed:
+            with open(kconfig_file, "w", encoding="utf-8") as f:
+                f.writelines(lines)
+            logger.info("security/Kconfig: config LSM default 已加入 baseband_guard")
 
     def apply_susfs_patches(self):
         if not self.config.enable_susfs:

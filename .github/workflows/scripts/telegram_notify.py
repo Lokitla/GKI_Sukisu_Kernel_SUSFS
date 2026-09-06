@@ -25,8 +25,8 @@ class TelegramNotifier:
     def send_message(self, message: str, parse_mode: str = "HTML", disable_web_page_preview: bool = True) -> bool:
         """发送消息到 Telegram"""
         if not self.bot_token or not self.chat_id:
-            print("错误: 缺少 TELEGRAM_BOT_TOKEN 或 TELEGRAM_CHAT_ID")
-            return False
+            print("警告: 缺少 TELEGRAM_BOT_TOKEN 或 TELEGRAM_CHAT_ID，跳过通知（不影响构建结果）")
+            return True
 
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
 
@@ -61,8 +61,8 @@ class TelegramNotifier:
     def send_document(self, file_path: str, caption: str = None) -> bool:
         """发送文件到 Telegram"""
         if not self.bot_token or not self.chat_id:
-            print("错误: 缺少 TELEGRAM_BOT_TOKEN 或 TELEGRAM_CHAT_ID")
-            return False
+            print("警告: 缺少 TELEGRAM_BOT_TOKEN 或 TELEGRAM_CHAT_ID，跳过通知（不影响构建结果）")
+            return True
 
         if not os.path.exists(file_path):
             print(f"文件不存在: {file_path}")
@@ -237,7 +237,7 @@ def main():
             print("错误: single 需要 7 个参数")
             sys.exit(1)
 
-        hashes_file = sys.argv[8] if len(sys.argv) > 8 else None
+        hashes_file = sys.argv[9] if len(sys.argv) > 9 else None
         if hashes_file and not os.path.exists(hashes_file):
             hashes_file = None
 
@@ -248,7 +248,7 @@ def main():
             os_patch_level=sys.argv[5],
             kernelsu_version=sys.argv[6],
             use_zram=sys.argv[7].lower() == "true",
-            use_kpm=True,
+            use_kpm=(sys.argv[8].lower() == "true" if len(sys.argv) > 8 else True),
             hashes_file=hashes_file,
         )
         success = notifier.send_message(message)

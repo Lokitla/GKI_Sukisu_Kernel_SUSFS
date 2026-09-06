@@ -45,6 +45,8 @@ jobs:
     steps:
       - name: 拉取 Manager / Spoofed-Manager
         id: fetch
+        # 管理器拉取是可选项：上游 CI 产物结构变化时不应拖垮整个构建
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SOURCE: ${{ inputs.kernelsu_source }}
@@ -52,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json, os, urllib.request, zipfile, pathlib, shutil
+          import json, os, urllib.request, zipfile, pathlib, shutil, subprocess
 
           token = os.environ["GH_TOKEN"]
           source = os.environ["SOURCE"]
@@ -101,14 +103,15 @@ jobs:
               raise SystemExit(f"{repo} 最近的运行中没有可用 Manager 产物")
 
           for name, (run_id, art) in picked.items():
-              req = urllib.request.Request(art["archive_download_url"], headers={
-                  "Authorization": f"token {token}",
-                  "Accept": "application/vnd.github+json",
-                  "User-Agent": "gki-sukisu-manager-fetch",
-              })
               zip_path = out / f"{name}.zip"
-              with urllib.request.urlopen(req, timeout=180) as r, open(zip_path, "wb") as f:
-                  shutil.copyfileobj(r, f)
+              # GitHub 会把 Actions 产物下载 302 到 Azure Blob 带签名 URL；
+              # curl 跨主机重定向默认丢弃 Authorization 头，正好满足签名 URL，避免 403。
+              subprocess.run([
+                  "curl", "-fL", "--retry", "3", "--retry-delay", "2",
+                  "-H", f"Authorization: token {token}",
+                  "-H", "Accept: application/vnd.github+json",
+                  "-o", str(zip_path), art["archive_download_url"],
+              ], check=True)
               dest = out / name
               with zipfile.ZipFile(zip_path) as z:
                   z.extractall(dest)
@@ -132,9 +135,10 @@ jobs:
           PY
 
       - name: 上传管理器 APK
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: manager-apk
           path: out/*.apk
-          if-no-files-found: error
+          if-no-files-found: warn
           compression-level: 9

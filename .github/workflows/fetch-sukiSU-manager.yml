@@ -27,7 +27,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json, os, urllib.request, zipfile, pathlib, shutil
+          import json, os, urllib.request, zipfile, pathlib, shutil, subprocess
 
           token = os.environ["GH_TOKEN"]
           repo = "SukiSU-Ultra/SukiSU-Ultra"
@@ -66,15 +66,15 @@ jobs:
           out = pathlib.Path("out")
           shutil.rmtree(out, ignore_errors=True)
           for name, (run_id, art) in fetched.items():
-              url = art["archive_download_url"]
-              req = urllib.request.Request(url, headers={
-                  "Authorization": f"token {token}",
-                  "Accept": "application/vnd.github+json",
-                  "User-Agent": "gki-sukisu-manager-fetch",
-              })
               zip_path = out / f"{name}.zip"
-              with urllib.request.urlopen(req, timeout=120) as r, open(zip_path, "wb") as f:
-                  shutil.copyfileobj(r, f)
+              # GitHub 会把 Actions 产物下载 302 到 Azure Blob 带签名 URL；
+              # curl 跨主机重定向默认丢弃 Authorization 头，正好满足签名 URL，避免 403。
+              subprocess.run([
+                  "curl", "-fL", "--retry", "3", "--retry-delay", "2",
+                  "-H", f"Authorization: token {token}",
+                  "-H", "Accept: application/vnd.github+json",
+                  "-o", str(zip_path), art["archive_download_url"],
+              ], check=True)
               dest = out / name
               with zipfile.ZipFile(zip_path) as z:
                   z.extractall(dest)

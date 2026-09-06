@@ -197,8 +197,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update && sudo apt upgrade -y
-          sudo apt install -y ccache python3 git curl wget zip unzip
-          pip install PyYAML
+          sudo apt install -y ccache python3 git curl wget zip unzip zstd openssl
+          pip install PyYAML python-multipart
 
       - name: Configure ccache
         run: |
@@ -207,6 +207,18 @@ jobs:
           ccache --max-size=2G
           ccache --set-config=compression=true
           echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
+
+      - name: Setup AVB signing key
+        env:
+          BOOT_SIGN_KEY: ${{ secrets.BOOT_SIGN_KEY }}
+        run: |
+          mkdir -p toolchain/linux-x86/bin
+          if [ -n "$BOOT_SIGN_KEY" ]; then
+            echo "$BOOT_SIGN_KEY" > toolchain/linux-x86/bin/testkey.pem
+          else
+            openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 > toolchain/linux-x86/bin/testkey.pem
+          fi
+          echo "BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/toolchain/linux-x86/bin/testkey.pem" >> $GITHUB_ENV
 
       - name: Restore ccache
         uses: actions/cache@v5
@@ -288,4 +300,4 @@ jobs:
             "SukiSU" \
             "${{ github.event.inputs.use_zram }}" \
             "${{ (github.event.inputs.use_kpm != 'disabled (关闭)') && 'true' || 'false' }}" \
-            "../../SHA256SUMS.txt"
+            "../../SHA256SUMS.txt" || true
